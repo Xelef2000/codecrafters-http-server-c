@@ -6,6 +6,33 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <pthread.h> 
+
+#define BUFFSIZE 4096
+
+void connection_handler(int conn){
+	char buff[BUFFSIZE];
+	
+	ssize_t bytes_received = recv(conn, buff, sizeof(buff) - 1, 0);
+	if (bytes_received < 1) {
+		// Handle errors or closed connection here
+	}
+
+	char* request_start = strstr(buff, "GET");
+	printf(request_start);
+	
+	char *end_of_line = strstr(request_start, "\r\n");
+	if (end_of_line != NULL) {
+		// Ensure null-termination for string operations
+		*end_of_line = '\0';
+	}
+	
+
+	
+	
+
+}
+
 
 int main() {
 	// Disable output buffering
@@ -16,7 +43,7 @@ int main() {
 
 	// Uncomment this block to pass the first stage
 	
-	int server_fd, client_addr_len;
+	int server_fd, client_addr_len, connfd;
 	struct sockaddr_in client_addr;
 	
 	server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -51,30 +78,31 @@ int main() {
 	
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
+	pthread_t thread_id;
 	
-	int conn = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-	printf("Client connected\n");
+	
+	while((connfd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len))){
+		printf("Client accepted");
+		if( pthread_create( &thread_id , NULL ,  connection_handler , (void*) &connfd) < 0)
+        {
+            perror("could not create thread");
+            return 1;
+        }
 
-	char buffer[1024];
-	ssize_t bytes_received = recv(conn, buffer, sizeof(buffer) - 1, 0);
-	if (bytes_received < 1) {
-		// Handle errors or closed connection here
+		printf("Handler assigned");
+		// pthread_join( thread_id , NULL);
 	}
 
-	char *end_of_line = strstr(buffer, "\r\n");
-	if (end_of_line != NULL) {
-		// Ensure null-termination for string operations
-		*end_of_line = '\0';
-	}
-	char *method = strtok(buffer, " ");
-	char *path = strtok(NULL, " ");
+	if (connfd < 0)
+    {
+        perror("accept failed");
+        return 1;
+    }
 
-	const char *response = (strcmp(path, "/") == 0)
-    ? "HTTP/1.1 200 OK\r\n\r\n"
-    : "HTTP/1.1 404 Not Found\r\n\r\n";
+	
+	close(server_fd);
 
-   	write(conn, response, strlen(response));
-
+	
 	
 	close(server_fd);
 
