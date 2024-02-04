@@ -55,8 +55,25 @@ int main() {
 	int conn = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
 	printf("Client connected\n");
 
-	const char *pong_response = "HTTP/1.1 200 OK\r\n\r\n";
-   	write(conn, pong_response, strlen(pong_response));
+	char buffer[1024];
+	ssize_t bytes_received = recv(conn, buffer, sizeof(buffer) - 1, 0);
+	if (bytes_received < 1) {
+		// Handle errors or closed connection here
+	}
+
+	char *end_of_line = strstr(buffer, "\r\n");
+	if (end_of_line != NULL) {
+		// Ensure null-termination for string operations
+		*end_of_line = '\0';
+	}
+	char *method = strtok(buffer, " ");
+	char *path = strtok(NULL, " ");
+
+	const char *response = (strcmp(path, "/") == 0)
+    ? "HTTP/1.1 200 OK\r\n\r\n"
+    : "HTTP/1.1 404 Not Found\r\n\r\n";
+
+   	write(conn, response, strlen(response));
 
 	
 	close(server_fd);
