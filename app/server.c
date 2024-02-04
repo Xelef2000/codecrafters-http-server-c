@@ -52,8 +52,12 @@ int main() {
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 	
-	accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+	int conn = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
 	printf("Client connected\n");
+
+	const char *pong_response = "HTTP/1.1 200 OK\r\n\r\n";
+   	write(conn, pong_response, strlen(pong_response));
+
 	
 	close(server_fd);
 
