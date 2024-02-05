@@ -31,6 +31,13 @@ struct response
 	char* body;
 };
 
+void print_request(const struct request* req) {
+    printf("Method: %s\n", req->method ? req->method : "(not specified)");
+    printf("Path: %s\n", req->path ? req->path : "(not specified)");
+    printf("Host: %s\n", req->host ? req->host : "(not specified)");
+    printf("User-Agent: %s\n", req->user_agent ? req->user_agent : "(not specified)");
+    printf("Accept: %s\n", req->accept ? req->accept : "(not specified)");
+}
 
 struct response* not_found(struct request* rq){
 	struct response* rsp = malloc(sizeof(struct response));
@@ -44,7 +51,7 @@ struct response* not_found(struct request* rq){
 
 
 struct response* accept_root(struct request* rq){
-	if(strcmp(rq->path, "/") != 0){
+	if(strcmp(rq->path, "/") != 0 || strcmp(rq->method, "GET") != 0){
 		return NULL;
 	}
 
@@ -58,7 +65,7 @@ struct response* accept_root(struct request* rq){
 }
 
 struct response* accept_echo(struct request* rq){
-	if(strstr(rq->path,"/echo") != rq->path){
+	if(strstr(rq->path,"/echo") != rq->path || strcmp(rq->method, "GET") != 0){
 		return NULL;
 	}
 
@@ -74,7 +81,7 @@ struct response* accept_echo(struct request* rq){
 
 
 struct response* accept_user_agent(struct request* rq){
-	if(strstr(rq->path,"/user-agent") != rq->path){
+	if(strstr(rq->path,"/user-agent") != rq->path || strcmp(rq->method, "GET") != 0){
 		return NULL;
 	}
 	
@@ -112,61 +119,42 @@ int send_response(int socket, struct response* rsp){
 	return send(socket, response, strlen(response), 0);
 }
 
-int parse_request(struct request* request, char* client_message){
-	// printf(client_message);
-	
-	char *current_line = client_message;
-	char *end_of_line = strstr(client_message, "\r\n");
-	if (end_of_line != NULL) {
-		*end_of_line = '\0';
-	}
-	// printf("From client: %s \n", client_message);
-	char *method = strtok(current_line, " ");
-	char *path = strtok(NULL, " ");
-	
-	current_line = end_of_line+2;
-	end_of_line = strstr(current_line, "\r\n");
-	if (end_of_line != NULL) {
-		*end_of_line = '\0';
-	}
 
-	strtok(current_line, " ");
-	char* host = strtok(NULL, " ");
-	// print(host);
 
-	current_line = end_of_line+2;
-	end_of_line = strstr(current_line, "\r\n");
-	if (end_of_line != NULL) {
-		*end_of_line = '\0';
-	}
-	strtok(current_line, " ");
-	char* user_agent = strtok(NULL, " ");
-	// print(user_agent);
+int parse_request(struct request* request, char* client_message) {
+    request->method = NULL;
+    request->path = NULL;
+    request->host = NULL;
+    request->user_agent = NULL;
+    request->accept = NULL;
 
-	current_line = end_of_line+2;
-	end_of_line = strstr(current_line, "\r\n");
-	if (end_of_line != NULL) {
-		*end_of_line = '\0';
-	}
+    char* line = strtok(client_message, "\r\n");
 
-	strtok(current_line, " ");
-	char* accept = strtok(NULL, " ");
-	end_of_line = strstr(end_of_line+2, "\r\n");
-		
+    if (line) {
+        sscanf(line, "%ms %ms %*s", &(request->method), &(request->path));
+    } else {
+        return -1; 
+    }
 
-	request->method = method;
-	request->path = path;
-	request->host = host;
-	request->user_agent = user_agent;
-	request->accept = accept;
+    // Parse header lines
+    while ((line = strtok(NULL, "\r\n"))) {
+        if (strncmp(line, "Host:", 5) == 0) {
+            sscanf(line, "Host: %ms", &(request->host));
+        } else if (strncmp(line, "User-Agent:", 11) == 0) {
+            sscanf(line, "User-Agent: %ms", &(request->user_agent));
+        } else if (strncmp(line, "Accept:", 7) == 0) {
+            sscanf(line, "Accept: %ms", &(request->accept));
+        }
+        // Add more header fields as needed
+    }
 
-	return -1;
+    return 0; // Successful parsing
 }
 
 
 void *connection_handler(void *socket_desc)
 {
-	printf("\n");
+	// printf("\n");
     int sock = *(int*)socket_desc;
     int read_size;
     char *message , client_message[BUFFSIZE];
@@ -178,39 +166,22 @@ void *connection_handler(void *socket_desc)
 	// printf(client_message);
 
 	struct request rq;
-	parse_request(&rq, client_message);
+	if(parse_request(&rq, client_message) == 0){
 
-	int index = 0;
-	struct response* rsp = NULL;
-	while(path_funcs[index] != NULL && rsp ==NULL){
-		rsp =  path_funcs[index](&rq);
-		index++;
+		print_request(&rq);
+
+		int index = 0;
+		struct response* rsp = NULL;
+		while(path_funcs[index] != NULL && rsp ==NULL){
+			rsp =  path_funcs[index](&rq);
+			index++;
+		}
+		
+		send_response(sock,rsp);
+
 	}
-	
-	send_response(sock,rsp);
 
 	
-
-	
-
-	// const char *response = (strcmp(path, "/") == 0)
-    // ? "HTTP/1.1 200 OK\r\n\r\n"
-    // : "HTTP/1.1 404 Not Found\r\n\r\n";
-
-	// send(sock, response, strlen(response), 0);
-
-     
-    // while( (read_size = recv(sock , client_message , BUFFSIZE , 0)) > 0 )
-    // {
-	// 	client_message[read_size] = '\0';
-	// 	printf("From client: %s \n", client_message);
-		
-	// 	const char *pong_response = "+PONG\r\n";
-   	// 	write(sock, pong_response, strlen(pong_response));
-		
-		
-	// 	memset(client_message, 0, BUFFSIZE);
-    // }
      
     if(read_size == 0)
     {
@@ -287,7 +258,7 @@ int main() {
         }
 
 		printf("Handler assigned\n");
-		// pthread_join( thread_id , NULL);
+		pthread_detach(thread_id);
 	}
 
 	if (connfd < 0)
