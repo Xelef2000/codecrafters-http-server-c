@@ -114,11 +114,10 @@ int numPlaces (int n) {
 int send_response(int socket, struct response* rsp){
 	int rsp_size = RESP_HEADER_SIZE + strlen(rsp->body) + strlen(rsp->content_type) + numPlaces(strlen(rsp->body)) + strlen(rsp->status);
 	char response[rsp_size];
-	sprintf(response, "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s",rsp->status, rsp->content_type,strlen(rsp->body),rsp->body);
+	sprintf(response, "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %ld\r\n\r\n%s",rsp->status, rsp->content_type,strlen(rsp->body),rsp->body);
 	// printf(response);
 	return send(socket, response, strlen(response), 0);
 }
-
 
 
 int parse_request_new(struct request* request, char* client_message) {
@@ -158,8 +157,7 @@ void *connection_handler(void *socket_desc)
 {
 	// printf("\n");
     int sock = *(int*)socket_desc;
-    int read_size;
-    char *message , client_message[BUFFSIZE];
+    char client_message[BUFFSIZE];
 
 	ssize_t bytes_received = recv(sock, client_message, sizeof(client_message) - 1, 0);
 	if (bytes_received < 1) {
@@ -203,16 +201,7 @@ void *connection_handler(void *socket_desc)
 		
 	// 	memset(client_message, 0, BUFFSIZE);
     // }
-     
-    if(read_size == 0)
-    {
-        puts("Client disconnected");
-        fflush(stdout);
-    }
-    else if(read_size == -1)
-    {
-        perror("recv failed");
-    }
+   
 
 	// free(rq.method);
 	// free(rq.path);
