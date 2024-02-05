@@ -121,7 +121,8 @@ int send_response(int socket, struct response* rsp){
 
 
 
-int parse_request(struct request* request, char* client_message) {
+int parse_request_new(struct request* request, char* client_message) {
+    // Initializing fields to NULL to handle potential errors
     request->method = NULL;
     request->path = NULL;
     request->host = NULL;
@@ -130,10 +131,11 @@ int parse_request(struct request* request, char* client_message) {
 
     char* line = strtok(client_message, "\r\n");
 
+    // Parse request line
     if (line) {
         sscanf(line, "%ms %ms %*s", &(request->method), &(request->path));
     } else {
-        return -1; 
+        return -1; // Invalid request format
     }
 
     // Parse header lines
@@ -166,22 +168,41 @@ void *connection_handler(void *socket_desc)
 	// printf(client_message);
 
 	struct request rq;
-	if(parse_request(&rq, client_message) == 0){
+	parse_request_new(&rq, client_message);
 
-		print_request(&rq);
+	print_request(&rq);
 
-		int index = 0;
-		struct response* rsp = NULL;
-		while(path_funcs[index] != NULL && rsp ==NULL){
-			rsp =  path_funcs[index](&rq);
-			index++;
-		}
-		
-		send_response(sock,rsp);
-
+	int index = 0;
+	struct response* rsp = NULL;
+	while(path_funcs[index] != NULL && rsp ==NULL){
+		rsp =  path_funcs[index](&rq);
+		index++;
 	}
+	
+	send_response(sock,rsp);
 
 	
+
+	
+
+	// const char *response = (strcmp(path, "/") == 0)
+    // ? "HTTP/1.1 200 OK\r\n\r\n"
+    // : "HTTP/1.1 404 Not Found\r\n\r\n";
+
+	// send(sock, response, strlen(response), 0);
+
+     
+    // while( (read_size = recv(sock , client_message , BUFFSIZE , 0)) > 0 )
+    // {
+	// 	client_message[read_size] = '\0';
+	// 	printf("From client: %s \n", client_message);
+		
+	// 	const char *pong_response = "+PONG\r\n";
+   	// 	write(sock, pong_response, strlen(pong_response));
+		
+		
+	// 	memset(client_message, 0, BUFFSIZE);
+    // }
      
     if(read_size == 0)
     {
