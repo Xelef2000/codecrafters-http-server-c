@@ -176,35 +176,9 @@ void *connection_handler(void *socket_desc)
 		rsp =  path_funcs[index](&rq);
 		index++;
 	}
-	
+	print("Found path handler");
 	send_response(sock,rsp);
 
-	
-
-	
-
-	// const char *response = (strcmp(path, "/") == 0)
-    // ? "HTTP/1.1 200 OK\r\n\r\n"
-    // : "HTTP/1.1 404 Not Found\r\n\r\n";
-
-	// send(sock, response, strlen(response), 0);
-
-     
-    // while( (read_size = recv(sock , client_message , BUFFSIZE , 0)) > 0 )
-    // {
-	// 	client_message[read_size] = '\0';
-	// 	printf("From client: %s \n", client_message);
-		
-	// 	const char *pong_response = "+PONG\r\n";
-   	// 	write(sock, pong_response, strlen(pong_response));
-		
-		
-	// 	memset(client_message, 0, BUFFSIZE);
-    // }
-   
-
-	// free(rq.method);
-	// free(rq.path);
     
 	terminate_connection:
     close(sock);
