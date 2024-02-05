@@ -7,31 +7,145 @@
 #include <errno.h>
 #include <unistd.h>
 #include <pthread.h> 
+#include <limits.h>
 
 #define BUFFSIZE 4096
+#define RESP_HEADER_SIZE 47
 
-void connection_handler(int conn){
-	char buff[BUFFSIZE];
-	
-	ssize_t bytes_received = recv(conn, buff, sizeof(buff) - 1, 0);
-	if (bytes_received < 1) {
-		// Handle errors or closed connection here
-	}
+struct request
+{
+	char* method;
+	char* path;
+};
 
-	char* request_start = strstr(buff, "GET");
-	printf(request_start);
+struct response
+{
+	char* status;
+	char* content_type;
+	char* body;
+};
+
+int numPlaces (int n) {
+    int r = 1;
+    if (n < 0) n = (n == INT_MIN) ? INT_MAX: -n;
+    while (n > 9) {
+        n /= 10;
+        r++;
+    }
+    return r;
+}
+
+int send_response(int socket, struct response* rsp){
+	int rsp_size = RESP_HEADER_SIZE + strlen(rsp->body) + strlen(rsp->content_type) + numPlaces(strlen(rsp->body)) + strlen(rsp->status);
+	char response[rsp_size];
+	sprintf(response, "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s",rsp->status, rsp->content_type,strlen(rsp->body),rsp->body);
+	printf(response);
+	return send(socket, response, strlen(response), 0);
+}
+
+int parse_request(struct request* request, char* client_message){
 	
-	char *end_of_line = strstr(request_start, "\r\n");
+	char *end_of_line = strstr(client_message, "\r\n");
 	if (end_of_line != NULL) {
-		// Ensure null-termination for string operations
 		*end_of_line = '\0';
 	}
-	
+	// printf("From client: %s \n", client_message);
+	char *method = strtok(client_message, " ");
+	char *path = strtok(NULL, " ");
 
-	
-	
+	request->method = malloc(strlen(method));
+	strcpy(request->method,method);
+	request->path =malloc(strlen(path));
+	strcpy(request->path,path);
 
+	return -1;
 }
+
+
+void *connection_handler(void *socket_desc)
+{
+	printf("\n");
+    int sock = *(int*)socket_desc;
+    int read_size;
+    char *message , client_message[BUFFSIZE];
+
+	ssize_t bytes_received = recv(sock, client_message, sizeof(client_message) - 1, 0);
+	if (bytes_received < 1) {
+		goto terminate_connection;
+	}	
+	// printf(client_message);
+
+	struct request rq;
+	parse_request(&rq, client_message);
+
+	if(strcmp(rq.path, "/") == 0){
+		struct response rsp = {
+			.status = "200 OK",
+			.content_type = "text/plain",
+			.body = rq.path
+		};
+
+		send_response(sock,&rsp);
+
+	} else if(strstr(rq.path, "echo") != NULL){
+
+		struct response rsp = {
+			.status = "200 OK",
+			.content_type = "text/plain",
+			.body = strstr(rq.path, "echo")+5
+		};
+
+		send_response(sock,&rsp);
+	} else{
+		struct response rsp = {
+			.status = "404 Not Found",
+			.content_type = "text/plain",
+			.body = ""
+		};
+		send_response(sock,&rsp);
+	}
+   
+
+	
+
+	
+
+	// const char *response = (strcmp(path, "/") == 0)
+    // ? "HTTP/1.1 200 OK\r\n\r\n"
+    // : "HTTP/1.1 404 Not Found\r\n\r\n";
+
+	// send(sock, response, strlen(response), 0);
+
+     
+    // while( (read_size = recv(sock , client_message , BUFFSIZE , 0)) > 0 )
+    // {
+	// 	client_message[read_size] = '\0';
+	// 	printf("From client: %s \n", client_message);
+		
+	// 	const char *pong_response = "+PONG\r\n";
+   	// 	write(sock, pong_response, strlen(pong_response));
+		
+		
+	// 	memset(client_message, 0, BUFFSIZE);
+    // }
+     
+    if(read_size == 0)
+    {
+        puts("Client disconnected");
+        fflush(stdout);
+    }
+    else if(read_size == -1)
+    {
+        perror("recv failed");
+    }
+
+	free(rq.method);
+	free(rq.path);
+    
+	terminate_connection:
+    close(sock);
+    return 0;
+} 
 
 
 int main() {
@@ -82,14 +196,14 @@ int main() {
 	
 	
 	while((connfd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len))){
-		printf("Client accepted");
+		printf("Client accepted\n");
 		if( pthread_create( &thread_id , NULL ,  connection_handler , (void*) &connfd) < 0)
         {
             perror("could not create thread");
             return 1;
         }
 
-		printf("Handler assigned");
+		printf("Handler assigned\n");
 		// pthread_join( thread_id , NULL);
 	}
 
@@ -100,11 +214,10 @@ int main() {
     }
 
 	
-	close(server_fd);
-
-	
 	
 	close(server_fd);
 
 	return 0;
 }
+
+
