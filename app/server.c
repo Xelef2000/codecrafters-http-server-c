@@ -12,10 +12,16 @@
 #define BUFFSIZE 4096
 #define RESP_HEADER_SIZE 47
 
+
+
+
 struct request
 {
 	char* method;
 	char* path;
+	char* host;
+	char* user_agent;
+	char* accept;
 };
 
 struct response
@@ -24,6 +30,69 @@ struct response
 	char* content_type;
 	char* body;
 };
+
+
+struct response* not_found(struct request* rq){
+	struct response* rsp = malloc(sizeof(struct response));
+	rsp->body = "";
+	rsp->status = "404 Not Found";
+	rsp->content_type =  "text/plain";
+
+	return rsp;		
+}
+
+
+
+struct response* accept_root(struct request* rq){
+	if(strcmp(rq->path, "/") != 0){
+		return NULL;
+	}
+
+	
+	struct response* rsp = malloc(sizeof(struct response));
+	rsp->body = "";
+	rsp->status = "200 OK";
+	rsp->content_type =  "text/plain";
+
+	return rsp;		
+}
+
+struct response* accept_echo(struct request* rq){
+	if(strstr(rq->path,"/echo") != rq->path){
+		return NULL;
+	}
+
+	
+	struct response* rsp = malloc(sizeof(struct response));
+	rsp->body = strstr(rq->path, "echo")+5;
+	rsp->status = "200 OK";
+	rsp->content_type =  "text/plain";
+
+	return rsp;		
+}
+
+
+
+struct response* accept_user_agent(struct request* rq){
+	if(strstr(rq->path,"/user-agent") != rq->path){
+		return NULL;
+	}
+	
+	struct response* rsp = malloc(sizeof(struct response));
+	rsp->body = rq->user_agent;
+	rsp->status = "200 OK";
+	rsp->content_type =  "text/plain";
+
+	return rsp;		
+}
+struct response* (*path_funcs[])(struct request*) = {accept_root, accept_echo, accept_user_agent, not_found, NULL};
+
+
+
+//bc i'm lazy
+void print(char* s){
+	printf("%s\n",s);
+}
 
 int numPlaces (int n) {
     int r = 1;
@@ -39,24 +108,57 @@ int send_response(int socket, struct response* rsp){
 	int rsp_size = RESP_HEADER_SIZE + strlen(rsp->body) + strlen(rsp->content_type) + numPlaces(strlen(rsp->body)) + strlen(rsp->status);
 	char response[rsp_size];
 	sprintf(response, "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s",rsp->status, rsp->content_type,strlen(rsp->body),rsp->body);
-	printf(response);
+	// printf(response);
 	return send(socket, response, strlen(response), 0);
 }
 
 int parse_request(struct request* request, char* client_message){
+	// printf(client_message);
 	
+	char *current_line = client_message;
 	char *end_of_line = strstr(client_message, "\r\n");
 	if (end_of_line != NULL) {
 		*end_of_line = '\0';
 	}
 	// printf("From client: %s \n", client_message);
-	char *method = strtok(client_message, " ");
+	char *method = strtok(current_line, " ");
 	char *path = strtok(NULL, " ");
+	
+	current_line = end_of_line+2;
+	end_of_line = strstr(current_line, "\r\n");
+	if (end_of_line != NULL) {
+		*end_of_line = '\0';
+	}
 
-	request->method = malloc(strlen(method));
-	strcpy(request->method,method);
-	request->path =malloc(strlen(path));
-	strcpy(request->path,path);
+	strtok(current_line, " ");
+	char* host = strtok(NULL, " ");
+	// print(host);
+
+	current_line = end_of_line+2;
+	end_of_line = strstr(current_line, "\r\n");
+	if (end_of_line != NULL) {
+		*end_of_line = '\0';
+	}
+	strtok(current_line, " ");
+	char* user_agent = strtok(NULL, " ");
+	// print(user_agent);
+
+	current_line = end_of_line+2;
+	end_of_line = strstr(current_line, "\r\n");
+	if (end_of_line != NULL) {
+		*end_of_line = '\0';
+	}
+
+	strtok(current_line, " ");
+	char* accept = strtok(NULL, " ");
+	end_of_line = strstr(end_of_line+2, "\r\n");
+		
+
+	request->method = method;
+	request->path = path;
+	request->host = host;
+	request->user_agent = user_agent;
+	request->accept = accept;
 
 	return -1;
 }
@@ -78,33 +180,14 @@ void *connection_handler(void *socket_desc)
 	struct request rq;
 	parse_request(&rq, client_message);
 
-	if(strcmp(rq.path, "/") == 0){
-		struct response rsp = {
-			.status = "200 OK",
-			.content_type = "text/plain",
-			.body = rq.path
-		};
-
-		send_response(sock,&rsp);
-
-	} else if(strstr(rq.path, "echo") != NULL){
-
-		struct response rsp = {
-			.status = "200 OK",
-			.content_type = "text/plain",
-			.body = strstr(rq.path, "echo")+5
-		};
-
-		send_response(sock,&rsp);
-	} else{
-		struct response rsp = {
-			.status = "404 Not Found",
-			.content_type = "text/plain",
-			.body = ""
-		};
-		send_response(sock,&rsp);
+	int index = 0;
+	struct response* rsp = NULL;
+	while(path_funcs[index] != NULL && rsp ==NULL){
+		rsp =  path_funcs[index](&rq);
+		index++;
 	}
-   
+	
+	send_response(sock,rsp);
 
 	
 
@@ -139,8 +222,8 @@ void *connection_handler(void *socket_desc)
         perror("recv failed");
     }
 
-	free(rq.method);
-	free(rq.path);
+	// free(rq.method);
+	// free(rq.path);
     
 	terminate_connection:
     close(sock);
