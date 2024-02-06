@@ -26,6 +26,7 @@ struct request
 	char* host;
 	char* user_agent;
 	char* accept;
+	char* body;
 };
 
 struct response
@@ -39,6 +40,14 @@ void print(char* s){
 	printf("%s\n",s);
 }
 
+void free_request(struct request* request) {
+    free(request->method);
+    free(request->path);
+    free(request->host);
+    free(request->user_agent);
+    free(request->accept);
+    free(request->body);
+}
 
 void print_request(const struct request* req) {
     printf("Method: %s\n", req->method ? req->method : "(not specified)");
@@ -46,6 +55,7 @@ void print_request(const struct request* req) {
     printf("Host: %s\n", req->host ? req->host : "(not specified)");
     printf("User-Agent: %s\n", req->user_agent ? req->user_agent : "(not specified)");
     printf("Accept: %s\n", req->accept ? req->accept : "(not specified)");
+	printf("Body: %s\n", req->body ? req->body : "(not specified)");
 }
 
 struct response* not_found(struct request* rq){
@@ -60,7 +70,7 @@ struct response* not_found(struct request* rq){
 
 
 struct response* accept_root(struct request* rq){
-	if(strcmp(rq->path, "/") != 0 || strcmp(rq->method, "GET") != 0){
+	if(!(strcmp(rq->path, "/") == 0 && strcmp(rq->method, "GET") == 0)){
 		return NULL;
 	}
 
@@ -74,7 +84,7 @@ struct response* accept_root(struct request* rq){
 }
 
 struct response* accept_echo(struct request* rq){
-	if(strstr(rq->path,"/echo") != rq->path || strcmp(rq->method, "GET") != 0){
+	if(!(strstr(rq->path,"/echo") == rq->path && strcmp(rq->method, "GET") == 0)){
 		return NULL;
 	}
 
@@ -90,7 +100,7 @@ struct response* accept_echo(struct request* rq){
 
 
 struct response* accept_user_agent(struct request* rq){
-	if(strstr(rq->path,"/user-agent") != rq->path || strcmp(rq->method, "GET") != 0){
+	if(!(strstr(rq->path,"/user-agent") == rq->path && strcmp(rq->method, "GET") == 0)){
 		return NULL;
 	}
 	
@@ -108,7 +118,7 @@ int file_exists(char *filename) {
 }
 
 struct response* accept_dir(struct request* rq){
-	if(strstr(rq->path,"/files") != rq->path || strcmp(rq->method, "GET") != 0){
+	if(!(strstr(rq->path,"/files") == rq->path && strcmp(rq->method, "GET") == 0)){
 		return NULL;
 	}
 	char *file = strstr(rq->path, "files")+6;
@@ -152,10 +162,42 @@ struct response* accept_dir(struct request* rq){
 	return rsp;		
 }
 
+struct response* accept_dir_post(struct request* rq){
+	if(!(strstr(rq->path,"/files") == rq->path && strcmp(rq->method, "POST") == 0)){
+		return NULL;
+	}
+	char *file = strstr(rq->path, "files")+6;
+	char *path = malloc(strlen(directory) + strlen(file) + 1);
+	strcpy(path, directory);
+	strcat(path, file);
+	print(path);
+
+	if(file_exists(path)){
+		free(path);
+		// TODO: 409 Conflict
+		return NULL;
+	}
+
+	FILE *fptr;
+	fptr = fopen(path, "w");
+	fprintf(fptr, rq->body);
+	fclose(fptr);
+	
+	
+	
+	struct response* rsp = malloc(sizeof(struct response));
+	rsp->status = "201 OK";
+	rsp->content_type =  "text/plain";
+	rsp->body = strdup("Uploaded file");
+
+
+	free(path);
+	return rsp;		
+}
 
 
 
-struct response* (*path_funcs[])(struct request*) = {accept_root, accept_echo, accept_user_agent, accept_dir, not_found, NULL};
+struct response* (*path_funcs[])(struct request*) = {accept_root, accept_echo, accept_user_agent, accept_dir, accept_dir_post, not_found, NULL};
 
 
 
@@ -179,24 +221,29 @@ int send_response(int socket, struct response* rsp){
 }
 
 
-int parse_request_new(struct request* request, char* client_message) {
-    // Initializing fields to NULL to handle potential errors
+int parse_request(struct request* request, char* client_message) {
+	
     request->method = NULL;
     request->path = NULL;
     request->host = NULL;
     request->user_agent = NULL;
     request->accept = NULL;
+    request->body = NULL;
+
+    char* body_start = strstr(client_message, "\r\n\r\n");
+    if (body_start) {
+        body_start += 4;
+        request->body = strdup(body_start);
+    }
 
     char* line = strtok(client_message, "\r\n");
 
-    // Parse request line
     if (line) {
         sscanf(line, "%ms %ms %*s", &(request->method), &(request->path));
     } else {
         return -1; // Invalid request format
     }
 
-    // Parse header lines
     while ((line = strtok(NULL, "\r\n"))) {
         if (strncmp(line, "Host:", 5) == 0) {
             sscanf(line, "Host: %ms", &(request->host));
@@ -205,17 +252,20 @@ int parse_request_new(struct request* request, char* client_message) {
         } else if (strncmp(line, "Accept:", 7) == 0) {
             sscanf(line, "Accept: %ms", &(request->accept));
         }
-        // Add more header fields as needed
     }
 
-    return 0; // Successful parsing
+
+   
+
+    return 0; 
 }
+
 
 
 void *connection_handler(void *socket_desc)
 {
 	printf("socket_desc: %p\n", socket_desc);
-    int sock = *(int*)socket_desc;
+    int sock = *(int*)socket_desc;// Successful parsing
     char client_message[BUFFSIZE];
 
 	ssize_t bytes_received = recv(sock, client_message, sizeof(client_message) - 1, 0);
@@ -225,7 +275,7 @@ void *connection_handler(void *socket_desc)
 	// printf(client_message);
 
 	struct request rq;
-	parse_request_new(&rq, client_message);
+	parse_request(&rq, client_message);
 
 	print_request(&rq);
 
@@ -237,8 +287,11 @@ void *connection_handler(void *socket_desc)
 	}
 	print("Found path handler");
 	send_response(sock,rsp);
-	free(rsp->body);
 
+	// Free the request and response
+	free(rsp->body);
+	free(rsp);
+	free_request(&rq);
     
 	terminate_connection:
     close(sock);
