@@ -8,11 +8,15 @@
 #include <unistd.h>
 #include <pthread.h> 
 #include <limits.h>
+#include <dirent.h> 
+#include <sys/stat.h>
+
 
 #define BUFFSIZE 4096
+
 #define RESP_HEADER_SIZE 47
 
-
+char* directory;
 
 
 struct request
@@ -31,6 +35,11 @@ struct response
 	char* body;
 };
 
+void print(char* s){
+	printf("%s\n",s);
+}
+
+
 void print_request(const struct request* req) {
     printf("Method: %s\n", req->method ? req->method : "(not specified)");
     printf("Path: %s\n", req->path ? req->path : "(not specified)");
@@ -41,7 +50,7 @@ void print_request(const struct request* req) {
 
 struct response* not_found(struct request* rq){
 	struct response* rsp = malloc(sizeof(struct response));
-	rsp->body = "";
+	rsp->body = strdup("");
 	rsp->status = "404 Not Found";
 	rsp->content_type =  "text/plain";
 
@@ -57,7 +66,7 @@ struct response* accept_root(struct request* rq){
 
 	
 	struct response* rsp = malloc(sizeof(struct response));
-	rsp->body = "";
+	rsp->body = strdup("");
 	rsp->status = "200 OK";
 	rsp->content_type =  "text/plain";
 
@@ -71,7 +80,7 @@ struct response* accept_echo(struct request* rq){
 
 	
 	struct response* rsp = malloc(sizeof(struct response));
-	rsp->body = strstr(rq->path, "echo")+5;
+	rsp->body = strdup(strstr(rq->path, "echo")+5);
 	rsp->status = "200 OK";
 	rsp->content_type =  "text/plain";
 
@@ -86,20 +95,70 @@ struct response* accept_user_agent(struct request* rq){
 	}
 	
 	struct response* rsp = malloc(sizeof(struct response));
-	rsp->body = rq->user_agent;
+	rsp->body = strdup(rq->user_agent);
 	rsp->status = "200 OK";
 	rsp->content_type =  "text/plain";
 
 	return rsp;		
 }
-struct response* (*path_funcs[])(struct request*) = {accept_root, accept_echo, accept_user_agent, not_found, NULL};
 
-
-
-//bc i'm lazy
-void print(char* s){
-	printf("%s\n",s);
+int file_exists(char *filename) {
+  struct stat buffer;   
+  return (stat(filename, &buffer) == 0);
 }
+
+struct response* accept_dir(struct request* rq){
+	if(strstr(rq->path,"/files") != rq->path || strcmp(rq->method, "GET") != 0){
+		return NULL;
+	}
+	char *file = strstr(rq->path, "files")+6;
+	char *path = malloc(strlen(directory) + strlen(file) + 1);
+	strcpy(path, directory);
+	strcat(path, file);
+	print(path);
+	
+	if(!file_exists(path)){
+		free(path);
+		return NULL;
+	}
+
+
+	FILE *fptr;
+	char c;
+	fptr = fopen(path, "r");
+	if (fptr == NULL) {
+		printf("Cannot open file \n");
+		free(path);
+		return NULL;
+	}
+	char *content = malloc(1);
+	int i = 0;
+	while ((c = fgetc(fptr)) != EOF) {
+		content[i] = c;
+		i++;
+		content = realloc(content, i+1);
+	}
+	content[i] = '\0';
+	fclose(fptr);
+
+	
+	struct response* rsp = malloc(sizeof(struct response));
+	rsp->status = "200 OK";
+	rsp->content_type =  "application/octet-stream";
+	rsp->body = content;
+
+
+	free(path);
+	return rsp;		
+}
+
+
+
+
+struct response* (*path_funcs[])(struct request*) = {accept_root, accept_echo, accept_user_agent, accept_dir, not_found, NULL};
+
+
+
 
 int numPlaces (int n) {
     int r = 1;
@@ -155,7 +214,7 @@ int parse_request_new(struct request* request, char* client_message) {
 
 void *connection_handler(void *socket_desc)
 {
-	// printf("\n");
+	printf("socket_desc: %p\n", socket_desc);
     int sock = *(int*)socket_desc;
     char client_message[BUFFSIZE];
 
@@ -178,6 +237,7 @@ void *connection_handler(void *socket_desc)
 	}
 	print("Found path handler");
 	send_response(sock,rsp);
+	free(rsp->body);
 
     
 	terminate_connection:
@@ -186,17 +246,26 @@ void *connection_handler(void *socket_desc)
 } 
 
 
-int main() {
+int main(int argc, char *argv[]) {
 	// Disable output buffering
 	setbuf(stdout, NULL);
 
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	printf("Logs from your program will appear here!\n");
 
-	// Uncomment this block to pass the first stage
+	for(int i = 0; i < argc; i++){
+		if(strcmp(argv[i], "--directory") == 0){
+			directory = argv[i+1];
+			printf("Directory: %s\n", directory);
+		}
+	}
 	
+
+
 	int server_fd, client_addr_len, connfd;
 	struct sockaddr_in client_addr;
+
+
 	
 	server_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_fd == -1) {
@@ -222,7 +291,7 @@ int main() {
 		return 1;
 	}
 	
-	int connection_backlog = 5;
+	int connection_backlog = 10;
 	if (listen(server_fd, connection_backlog) != 0) {
 		printf("Listen failed: %s \n", strerror(errno));
 		return 1;
@@ -233,9 +302,11 @@ int main() {
 	pthread_t thread_id;
 	
 	
-	while((connfd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len))){
+	while((connfd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t*)&client_addr_len))){
 		printf("Client accepted\n");
-		if( pthread_create( &thread_id , NULL ,  connection_handler , (void*) &connfd) < 0)
+		int *new_sock = malloc(1);
+    	*new_sock = connfd;
+		if( pthread_create( &thread_id , NULL ,  connection_handler , (void*) new_sock) < 0)
         {
             perror("could not create thread");
             return 1;
